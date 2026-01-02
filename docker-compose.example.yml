@@ -1,0 +1,45 @@
+services:
+  ms_db:
+    restart: always
+    image: ankane/pgvector
+    container_name: ms_db_cont
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ms_expenses_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - ms_db_data:/var/lib/postgresql/data
+
+  ms_bot:
+    restart: always
+    build: .
+    container_name: ms_bot_cont
+    volumes:
+      - .:/app
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - POSTGRES_HOST=ms_db
+      - POSTGRES_DB=ms_expenses_db
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - WEBHOOK_URL=${WEBHOOK_URL}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
+    depends_on:
+      - ms_db
+
+  ms_ngrok:
+    restart: always
+    image: ngrok/ngrok:latest
+    container_name: ms_ngrok_cont
+    command: http --domain=${WEBHOOK_URL} ms_bot:8000
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+    depends_on:
+      - ms_bot
+    ports:
+      - "4040:4040"
+
+volumes:
+  ms_db_data:

@@ -1,0 +1,6 @@
+.env
+__pycache__/
+*.pyc
+test_tools.json
+docker-compose.yml
+expenses.db

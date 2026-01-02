@@ -1,0 +1,17 @@
+fastapi>=0.110
+uvicorn>=0.27
+python-dotenv>=1.0
+
+psycopg2-binary>=2.9
+
+python-telegram-bot==20.7
+httpx==0.25.2
+
+langchain>=0.3.31
+langchain-core>=0.3.67
+langchain-community>=0.3.31
+
+langgraph>=0.2.39
+
+langchain-google-genai==2.0.6
+google-generativeai>=0.8,<0.9
