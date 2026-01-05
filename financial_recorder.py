@@ -219,7 +219,6 @@ def parse_agent_output(content) -> str:
             if isinstance(item, str):
                 texts.append(item)
             elif isinstance(item, dict):
-                # Jangan ambil 'thought' karena itu internal
                 val = item.get("text") or item.get("content")
                 if val and isinstance(val, str):
                     texts.append(val)
@@ -227,13 +226,9 @@ def parse_agent_output(content) -> str:
     else:
         res = str(content)
 
-    # Memperbaiki masalah \n literal dan merapikan spasi
     if res:
-        # Ganti literal \n (backslash + n) dengan karakter newline asli jika ada
         res = res.replace("\\n", "\n")
-        # Hapus spasi di awal/akhir dan rapikan baris kosong berlebih
         res = res.strip()
-        
     return res
 
 
