@@ -1,7 +1,34 @@
+# Kredensial & Lingkungan
 .env
+.env.local
+.env.*.local
+
+# Database & Data
+*.db
+*.sqlite3
+postgres_data/
+
+# Python
 __pycache__/
-*.pyc
-test_tools.json
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+.pytest_cache/
+
+# Docker (Jika berisi secret)
 docker-compose.yml
-expenses.db
+!docker-compose.example.yml
+
+# Editor & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Project Specific
+test_tools.json
 clear_db.py
+financial_recorder.py
+cli.py
