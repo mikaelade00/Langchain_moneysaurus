@@ -4,3 +4,4 @@ __pycache__/
 test_tools.json
 docker-compose.yml
 expenses.db
+clear_db.py

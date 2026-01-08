@@ -1,4 +1,4 @@
-# LangGraph Financial Recorder (Moneysaurus) 🦖💰
+# LangGraph Financial Recorder💰
 
 Moneysaurus is an AI-powered financial assistant built using **LangGraph** and **Gemini 2.0/2.5 Flash**. This bot is designed to automatically record your expenses via Telegram, through both text messages and photos of receipts/bills.
 

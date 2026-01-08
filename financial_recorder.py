@@ -12,7 +12,7 @@ from langgraph.graph.message import MessagesState, add_messages
 import operator
 from dotenv import load_dotenv
 
-llm = "gemini-2.5-flash"
+llm = "gemini-2.5-flash-lite"
 
 # --- In-memory storage for chat history ---
 chat_memory = {}
@@ -59,9 +59,12 @@ def init_db():
             id INTEGER PRIMARY KEY,
             description TEXT,
             category TEXT,
-            expenses NUMERIC
+            expenses NUMERIC,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    # Add column if it doesn't exist (for existing DBs)
+    cursor.execute("ALTER TABLE pengeluaran ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
     conn.commit()
     cursor.close()
     conn.close()
@@ -100,10 +103,23 @@ def save_expense(items: List[dict]):
     cursor = conn.cursor()
     try:
         for item in items:
-            cursor.execute(
-                "INSERT INTO pengeluaran (id, description, category, expenses) VALUES (%s, %s, %s, %s) ON CONFLICT (id) DO UPDATE SET description = EXCLUDED.description, category = EXCLUDED.category, expenses = EXCLUDED.expenses",
-                (item.get("id"), item.get("description"), item.get("category"), item.get("expenses"))
-            )
+            category = item.get("category", "Lain-lain")
+            if category:
+                category = category.strip().title()
+            
+            # Use provided date or CURRENT_TIMESTAMP
+            date_val = item.get("date") # Expected format: 'YYYY-MM-DD' or 'YYYY-MM-DD HH:MM:SS'
+            
+            if date_val:
+                cursor.execute(
+                    "INSERT INTO pengeluaran (id, description, category, expenses, created_at) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (id) DO UPDATE SET description = EXCLUDED.description, category = EXCLUDED.category, expenses = EXCLUDED.expenses, created_at = EXCLUDED.created_at",
+                    (item.get("id"), item.get("description"), category, item.get("expenses"), date_val)
+                )
+            else:
+                cursor.execute(
+                    "INSERT INTO pengeluaran (id, description, category, expenses) VALUES (%s, %s, %s, %s) ON CONFLICT (id) DO UPDATE SET description = EXCLUDED.description, category = EXCLUDED.category, expenses = EXCLUDED.expenses",
+                    (item.get("id"), item.get("description"), category, item.get("expenses"))
+                )
         conn.commit()
         return "Berhasil menyimpan pengeluaran."
     except Exception as e:
@@ -128,7 +144,7 @@ def get_expense_by_category():
     """ Mengambil ringkasan pengeluaran per kategori. """
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT category, SUM(expenses) as total FROM pengeluaran GROUP BY category ORDER BY total DESC")
+    cursor.execute("SELECT INITCAP(category) as cat, SUM(expenses) as total FROM pengeluaran GROUP BY cat ORDER BY total DESC")
     rows = cursor.fetchall()
     cursor.close()
     conn.close()
@@ -149,7 +165,54 @@ def get_recent_expenses():
         return json.dumps({"status": "empty", "last_id": 0})
     return json.dumps({"status": "exists", "id": row["id"], "description": row["description"], "category": row["category"], "expenses": float(row["expenses"])})
 
-tools = [save_expense, get_total_expense, get_expense_by_category, get_recent_expenses]
+@tool
+def get_categories():
+    """ Mengambil daftar unik semua kategori yang sudah ada di database. """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT DISTINCT category FROM pengeluaran")
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return [row[0] for row in rows] if rows else []
+
+
+@tool
+def get_expense_by_period(period: str):
+    """ 
+    Mengambil rincian pengeluaran berdasarkan periode.
+    Input period bisa berupa: 'hari ini', 'minggu ini', 'bulan ini', atau tahun (misal: '2024').
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    query = "SELECT description, category, expenses, created_at::date FROM pengeluaran WHERE "
+    if period == "hari ini":
+        query += "created_at::date = CURRENT_DATE"
+    elif period == "minggu ini":
+        query += "created_at >= CURRENT_DATE - INTERVAL '7 days'"
+    elif period == "bulan ini":
+        query += "EXTRACT(MONTH FROM created_at) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM CURRENT_DATE)"
+    else:
+        # Asumsikan input tahun atau format spesifik lainnya bisa dikembangkan
+        query += "TRUE"
+        
+    query += " ORDER BY created_at DESC"
+    
+    cursor.execute(query)
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    
+    if not rows:
+        return f"Tidak ada data pengeluaran untuk periode {period}."
+    
+    res = [f"Rincian pengeluaran {period}:"]
+    for row in rows:
+        res.append(f"- [{row[3]}] {row[0]} ({row[1]}): Rp {row[2]:,.0f}")
+    return "\n".join(res)
+
+tools = [save_expense, get_total_expense, get_expense_by_category, get_recent_expenses, get_categories, get_expense_by_period]
 
 # --- State & Logic ---
 
@@ -163,7 +226,6 @@ def limit_memory(state: State):
     """
     messages = state["messages"]
     if len(messages) > 10:
-        # Hapus pesan-pesan tertua kecuali yang terakhir (sisakan 10)
         return {"messages": [RemoveMessage(id=m.id) for m in messages[:-10]]}
     return {"messages": []}
 
@@ -176,10 +238,12 @@ Your task is to process user input about expenses and prepare it to be stored in
 1. Sebelum membuat data baru, gunakan **get_recent_expenses** untuk mendapatkan `id` terakhir.
    - Jika belum ada data (last_id=0), mulai dari id = 1.
    - Jika ada data, id baru = last_id + 1.
-2. Parse input user menjadi structured items.
-3. Gunakan **save_expense** untuk menyimpan data.
-4. Gunakan tools lain jika user bertanya tentang total atau kategori.
-5. Jawab dalam Bahasa Indonesia yang natural.
+2. Gunakan **get_categories** untuk melihat kategori yang sudah pernah digunakan. 
+   **PENTING:** Jika input user memiliki arti yang mirip dengan kategori yang sudah ada (misal: 'perlengkapan rumah' mirip dengan 'Peralatan Rumah Tangga'), gunakan kategori yang SUDAH ADA agar konsisten.
+3. Parse input user menjadi structured items. Gunakan format **Title Case** untuk kategori.
+4. Gunakan **save_expense** untuk menyimpan data.
+5. Gunakan tools lain jika user bertanya tentang total, kategori, atau pengeluaran pada waktu tertentu.
+6. Jawab dalam Bahasa Indonesia yang natural.
 """
     model = ChatGoogleGenerativeAI(model=llm).bind_tools(tools)
     messages = [SystemMessage(content=system_prompt)] + state["messages"]
@@ -271,8 +335,6 @@ async def get_agent_response(
             
             if node_name == "agent":
                 msg = node_output["messages"][-1]
-                # Jika ada tool_calls, teksnya biasanya cuma "internal thinking/rencana"
-                # Jadi kita hanya tampilkan teks jika TIDAK ada tool_calls (yaitu jawaban akhir)
                 if msg.content and not msg.tool_calls:
                     final_text = parse_agent_output(msg.content)
 
